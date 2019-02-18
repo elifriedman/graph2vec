@@ -64,6 +64,25 @@ def parse_args():
 
 	return parser.parse_args()
 
+def read_graph_pickle(fname):
+        G = nx.read_gpickle(fname)
+        for edge in G.edges():
+                G[edge[0]][edge[1]]['weight'] = 1
+	if not args.directed:
+		G = G.to_undirected()
+
+	return G
+
+
+def read_graph_gexf(fname):
+        G = nx.read_gexf(fname, node_type=int)
+        for edge in G.edges():
+                G[edge[0]][edge[1]]['weight'] = 1
+	if not args.directed:
+		G = G.to_undirected()
+
+	return G
+
 def read_graph(fname):
 	'''
 	Reads the input network in networkx.
@@ -91,23 +110,44 @@ def learn_embeddings(docs):
 	return
 
 def get_walks(fname):
-	nx_G = read_graph(fname)
+        if os.path.splitext(fname)[1] == ".gexf":
+            nx_G = read_graph_gexf(fname)
+        elif os.path.splitext(fname)[1] == '.pickle':
+            nx_G = read_graph_pickle(fname)
+            def convert_node(node):
+                return str(nx_G.node[node]['Label'])
+        else:
+            nx_G = read_graph(fname)
 	G = node2vec.Graph(nx_G, args.directed, args.p, args.q)
 	G.preprocess_transition_probs()
 	walks = G.simulate_walks(args.num_walks, args.walk_length)
+        ext = os.path.splitext(fname)[1]
+        if  ext == ".gexf" or ext == ".pickle":
+            for i, walk in enumerate(walks):
+                walks[i] = map(convert_node, walk)
         return walks
 
 
+import time
 def get_docs():
-        files = os.listdir(args.input)
+        folder = args.input
+        dirs = os.listdir(args.input)
+        files = []
+        for dir in dirs:
+            path = os.path.join(folder, dir)
+            subs = os.listdir(path)
+            files.extend([os.path.join(path, sub) for sub in subs])
+
         N = len(files)
         for i, fname in enumerate(files):
-            print "{}/{}".format(i, N)
-            walks = get_walks(os.path.join(args.input, fname))
+            base = os.path.basename(fname)
+            t = time.time()
+            walks = get_walks(fname)
             for walk in walks:
                 walk = map(str, walk)
-                doc = TaggedDocument(walk, [fname])
+                doc = TaggedDocument(walk, [int(base.split(".")[0])])
                 yield doc
+            print "{}/{} ({}) ({})".format(i, N, fname, time.time()-t)
 
 
 def main(args):
