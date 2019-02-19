@@ -9,11 +9,12 @@ Aditya Grover and Jure Leskovec
 Knowledge Discovery and Data Mining (KDD), 2016
 '''
 
+import os
 import argparse
 import numpy as np
 import networkx as nx
 import node2vec
-from gensim.models import Word2Vec
+from gensim.models.doc2vec import Doc2Vec, TaggedDocument
 
 def parse_args():
 	'''
@@ -21,10 +22,10 @@ def parse_args():
 	'''
 	parser = argparse.ArgumentParser(description="Run node2vec.")
 
-	parser.add_argument('--input', nargs='?', default='graph/karate.edgelist',
-	                    help='Input graph path')
+	parser.add_argument('--input', nargs='?',
+	                    help='Input graph folder')
 
-	parser.add_argument('--output', nargs='?', default='emb/karate.emb',
+	parser.add_argument('--output', nargs='?', 
 	                    help='Embeddings path')
 
 	parser.add_argument('--dimensions', type=int, default=128,
@@ -63,14 +64,33 @@ def parse_args():
 
 	return parser.parse_args()
 
-def read_graph():
+def read_graph_pickle(fname):
+        G = nx.read_gpickle(fname)
+        for edge in G.edges():
+                G[edge[0]][edge[1]]['weight'] = 1
+	if not args.directed:
+		G = G.to_undirected()
+
+	return G
+
+
+def read_graph_gexf(fname):
+        G = nx.read_gexf(fname, node_type=int)
+        for edge in G.edges():
+                G[edge[0]][edge[1]]['weight'] = 1
+	if not args.directed:
+		G = G.to_undirected()
+
+	return G
+
+def read_graph(fname):
 	'''
 	Reads the input network in networkx.
 	'''
 	if args.weighted:
-		G = nx.read_edgelist(args.input, nodetype=int, data=(('weight',float),), create_using=nx.DiGraph())
+		G = nx.read_edgelist(fname, nodetype=int, data=(('weight',float),), create_using=nx.DiGraph())
 	else:
-		G = nx.read_edgelist(args.input, nodetype=int, create_using=nx.DiGraph())
+		G = nx.read_edgelist(fname, nodetype=int, create_using=nx.DiGraph())
 		for edge in G.edges():
 			G[edge[0]][edge[1]]['weight'] = 1
 
@@ -79,25 +99,63 @@ def read_graph():
 
 	return G
 
-def learn_embeddings(walks):
+def learn_embeddings(docs):
 	'''
 	Learn embeddings by optimizing the Skipgram objective using SGD.
 	'''
-	walks = [map(str, walk) for walk in walks]
-	model = Word2Vec(walks, size=args.dimensions, window=args.window_size, min_count=0, sg=1, workers=args.workers, iter=args.iter)
-	model.save_word2vec_format(args.output)
+	model = Doc2Vec(list(docs), vector_size=args.dimensions, window=args.window_size, min_count=0, workers=args.workers, epochs=args.iter)
+	model.save(args.output+"_model")
+	model.save_word2vec_format(args.output, doctag_vec=True)
 	
 	return
+
+def get_walks(fname):
+        if os.path.splitext(fname)[1] == ".gexf":
+            nx_G = read_graph_gexf(fname)
+        elif os.path.splitext(fname)[1] == '.pickle':
+            nx_G = read_graph_pickle(fname)
+            def convert_node(node):
+                return str(nx_G.node[node]['Label'])
+        else:
+            nx_G = read_graph(fname)
+	G = node2vec.Graph(nx_G, args.directed, args.p, args.q)
+	G.preprocess_transition_probs()
+	walks = G.simulate_walks(args.num_walks, args.walk_length)
+        ext = os.path.splitext(fname)[1]
+        if  ext == ".gexf" or ext == ".pickle":
+            for i, walk in enumerate(walks):
+                walks[i] = map(convert_node, walk)
+        return walks
+
+
+import time
+def get_docs():
+        folder = args.input
+        dirs = os.listdir(args.input)
+        files = []
+        for dir in dirs:
+            path = os.path.join(folder, dir)
+            subs = os.listdir(path)
+            files.extend([os.path.join(path, sub) for sub in subs])
+
+        N = len(files)
+        for i, fname in enumerate(files):
+            base = os.path.basename(fname)
+            t = time.time()
+            walks = get_walks(fname)
+            for walk in walks:
+                walk = map(str, walk)
+                doc = TaggedDocument(walk, [int(base.split(".")[0])])
+                yield doc
+            print "{}/{} ({}) ({})".format(i, N, fname, time.time()-t)
+
 
 def main(args):
 	'''
 	Pipeline for representational learning for all nodes in a graph.
 	'''
-	nx_G = read_graph()
-	G = node2vec.Graph(nx_G, args.directed, args.p, args.q)
-	G.preprocess_transition_probs()
-	walks = G.simulate_walks(args.num_walks, args.walk_length)
-	learn_embeddings(walks)
+        docs = get_docs()
+	learn_embeddings(docs)
 
 if __name__ == "__main__":
 	args = parse_args()
