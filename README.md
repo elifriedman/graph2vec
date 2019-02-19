@@ -1,6 +1,7 @@
 # graph2vec v2
 
-graph2vec is to node2vec as doc2vec is to word2vec 
+graph2vec is to node2vec as doc2vec is to word2vec
+
 node2vec performs random walks on a graph in order to create sequences that can be fed into word2vec
 graph2vec performs random walks on multiple graphs and feeds those walks, along with a unique graph ID per graph into doc2vec, which learns a continuous embedding for each node and each graph.
 
