@@ -122,7 +122,7 @@ def get_walk(nx_G):
     def convert_node(node):
         if 'Label' in nx_G.node[node]:
             return str(nx_G.node[node]['Label'])
-        return nx_G.node[node]
+        return node
     G = node2vec.Graph(nx_G, args.directed, args.p, args.q)
     G.preprocess_transition_probs()
     walks = G.simulate_walks(args.num_walks, args.walk_length)
