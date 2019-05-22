@@ -18,7 +18,7 @@ This separates the graphs into individual gpickled networkx files located in the
 
 Then run graph2vec to extract the embeddings:
 ```
-python src/main.py --p 1 --q 0.5 --dimensions 1024 --input graph/PROTEINS/graphs --output emb/PROTEINS_p1_q.5_d1024.emb
+python src/graph2vec.py graph/PROTEINS/graphs --p 1 --q 0.5 --dimensions 1024 --output emb/PROTEINS_p1_q.5_d1024.emb
 ```
 This will save the embedding
 
