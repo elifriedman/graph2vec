@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 '''
 Reference implementation of node2vec. 
 
