@@ -1,5 +1,4 @@
 import os
-import StringIO
 import numpy as np
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
@@ -8,12 +7,12 @@ from sklearn.svm import SVC, LinearSVC
 def read_embeddings(fname):
     with open(fname) as f:
         f.readline()
-        content = StringIO.StringIO(f.read())
         names = []
-        def fn(name):
-            names.append(name)
-            return 0
-        data = np.loadtxt(content, converters={0: fn})[:, 1:]
+        data = []
+        for line in f:
+            line = line.strip().split()
+            names.append(line[0])
+            data.append([float(v) for v in line[1:]])
         return names, data
     
 def read_labels(basedir):
