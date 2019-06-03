@@ -12,10 +12,12 @@ Knowledge Discovery and Data Mining (KDD), 2016
 
 import os
 import argparse
+import pickle
 import numpy as np
 import networkx as nx
-import node2vec
+import graph2vec.node2vec as node2vec
 from gensim.models.doc2vec import Doc2Vec, TaggedDocument
+from multiprocessing import Pool
 
 def parse_args():
     '''
@@ -40,7 +42,7 @@ def parse_args():
     parser.add_argument('--window-size', type=int, default=10,
                     help='Context size for optimization. Default is 10.')
 
-    parser.add_argument('--iter', default=1, type=int,
+    parser.add_argument('--num-iterations', default=1, type=int,
                   help='Number of epochs in SGD')
 
     parser.add_argument('--workers', type=int, default=8,
@@ -99,15 +101,16 @@ def read_graph(fname):
 
     return G
 
-def learn_embeddings(docs):
+def learn_embeddings(docs, dimension=128, window_size=10, workers=8, num_iters=1, output='output'):
     '''
     Learn embeddings by optimizing the Skipgram objective using SGD.
     '''
-    model = Doc2Vec(list(docs), vector_size=args.dimensions, window=args.window_size, min_count=0, workers=args.workers, epochs=args.iter)
-    model.save(args.output+"_model")
-    model.save_word2vec_format(args.output, doctag_vec=True)
+    model = Doc2Vec(docs, vector_size=dimension, window=window_size, min_count=0, workers=workers, epochs=num_iters)
+    if output:
+        model.save(output+"_model")
+        model.save_word2vec_format(output, doctag_vec=True)
 
-    return
+    return model
 
 def load_graph_from_file(fname):
     if os.path.splitext(fname)[1] == ".gexf":
@@ -118,51 +121,62 @@ def load_graph_from_file(fname):
         nx_G = read_graph(fname)
     return nx_G
 
-def get_walk(nx_G):
-    def convert_node(node):
-        if 'Label' in nx_G.node[node]:
-            return str(nx_G.node[node]['Label'])
-        return node
-    G = node2vec.Graph(nx_G, args.directed, args.p, args.q)
+def get_walks(nx_G, directed=True, p=1, q=1, walk_length=80, num_walks=10):
+    G = node2vec.Graph(nx_G, directed, p, q)
     G.preprocess_transition_probs()
-    walks = G.simulate_walks(args.num_walks, args.walk_length)
-    ext = os.path.splitext(fname)[1]
-
+    walks = G.simulate_walks(num_walks, walk_length)
 
     for i, walk in enumerate(walks):
-        walks[i] = map(convert_node, walk)
+        for n, node in enumerate(walk):
+            walk[n] = str(nx_G[node].get('Label', node))
     return walks
 
+walk_ext = '_walks.pickle'
+def load_and_get_walks(fname):
+    if os.path.exists(fname+walk_ext):
+        with open(fname+walk_ext, 'rb') as f:
+            return pickle.load(f)
+    t = time.time()
+    graph = load_graph_from_file(fname)
+    walks = get_walks(graph, p=args.p, q=args.q, num_walks=args.num_walks, walk_length=args.walk_length)
+    for i in range(len(walks)):
+        walks[i] = [str(walk) for walk in walks[i]]
+    print('{} completed. ({})'.format(fname, time.time() - t))
+    with open(fname+walk_ext, 'wb') as f:
+        pickle.dump(walks, f)
+    return walks
 
 import time
-def get_docs():
-    folder = args.input
-    dirs = os.listdir(args.input)
+def get_docs(input_dir, num_workers=8):
+    folder = input_dir
+    dirs = os.listdir(input_dir)
     files = []
-    for dir in dirs:
-        path = os.path.join(folder, dir)
-        subs = os.listdir(path)
-        files.extend([os.path.join(path, sub) for sub in subs])
+    for fname in dirs:
+        if 'walks' not in fname:
+            path = os.path.join(folder, fname)
+            files.append(path)
 
     N = len(files)
-    for i, fname in enumerate(files):
+
+    with Pool(num_workers) as pool:
+        res = pool.map(load_and_get_walks, files)
+    print('Finished creating walks')
+
+    docs = []
+    for walks, fname  in zip(res, dirs):
         base = os.path.basename(fname)
-        t = time.time()
-        graph = load_graph_from_file(fname)
-        walks = get_walk(graph)
         for walk in walks:
-            walk = map(str, walk)
             doc = TaggedDocument(walk, [int(base.split(".")[0])])
-            yield doc
-        print("{}/{} ({}) ({})".format(i, N, fname, time.time()-t))
+            docs.append(doc)
+    return docs
 
 
 def main(args):
     '''
     Pipeline for representational learning for all nodes in a graph.
     '''
-    docs = get_docs()
-    learn_embeddings(docs)
+    docs = get_docs(args.input, args.workers)
+    learn_embeddings(docs, dimension=args.dimensions, window_size=args.window_size, num_iters=args.num_iterations, output=args.output)
 
 if __name__ == "__main__":
     args = parse_args()

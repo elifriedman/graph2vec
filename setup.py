@@ -7,7 +7,7 @@ setup(
     author='Eli Friedman',
     packages=find_packages(exclude=['contrib', 'docs', 'tests']),
     install_requires=['numpy', 'networkx', 'gensim', 'scipy'],
-    scripts=['graph2vec/graph2vec.py'],
+    scripts=[],
     extras_require={
         'test': ['pytest'],
     },
